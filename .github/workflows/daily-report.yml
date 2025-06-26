@@ -29,20 +29,14 @@ jobs:
         RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
         SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
         GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+        DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
       run: |
         python optimization_collector.py
         
     - name: 📁 Archive generated reports
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: daily-reports
-        path: |
-          report_*.md
-          report_*.html
+        path: 'report_*.md'
         retention-days: 30
-        
-    - name: 📊 Upload execution summary
-      if: always()
-      run: |
-        echo "Report generation completed at $(date)"
-        ls -la report_* 2>/dev/null || echo "No report files found"
+      if: always()  # レポートファイルが生成された場合のみ実行
