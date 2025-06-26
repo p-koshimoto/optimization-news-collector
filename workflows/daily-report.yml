@@ -26,9 +26,9 @@ jobs:
         
     - name: 🚀 Run report generation
       env:
-        RECIPIENT_EMAIL: ${{ ksmtyttest@gmail.com }}
-        SENDER_EMAIL: ${{ ksmtyttest@gmail.com }}
-        GMAIL_APP_PASSWORD: ${{ qjho ztrw uioo dixc }}
+        RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+        SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
+        GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
       run: |
         python optimization_collector.py
         
