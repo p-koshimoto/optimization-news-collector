@@ -1,0 +1,48 @@
+name: 📊 Daily Optimization Report
+
+on:
+  schedule:
+    # 毎日日本時間 9:00 (UTC 0:00) に実行
+    - cron: '0 0 * * *'
+  workflow_dispatch: # 手動実行も可能
+
+jobs:
+  generate-report:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: 🐍 Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: 📦 Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: 🚀 Run report generation
+      env:
+        RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+        SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
+        GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+      run: |
+        python optimization_collector.py
+        
+    - name: 📁 Archive generated reports
+      uses: actions/upload-artifact@v3
+      with:
+        name: daily-reports
+        path: |
+          report_*.md
+          report_*.html
+        retention-days: 30
+        
+    - name: 📊 Upload execution summary
+      if: always()
+      run: |
+        echo "Report generation completed at $(date)"
+        ls -la report_* 2>/dev/null || echo "No report files found"
