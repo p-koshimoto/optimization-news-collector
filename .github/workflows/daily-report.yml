@@ -29,7 +29,6 @@ jobs:
         RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
         SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
         GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
-        DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
       run: |
         python optimization_collector.py
         
