@@ -6,6 +6,8 @@ import json
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email import encoders
 import os
 import sys
 import pytz
@@ -153,14 +155,312 @@ class OptimizationNewsCollector:
         print(f"✅ 関連ニュース {len(news_items)} 件を収集しました")
         return news_items
     
-    def generate_simple_summary(self, text, max_sentences=2):
-        """シンプルな要約生成（外部API不使用）"""
-        sentences = text.split('.')
-        summary_sentences = sentences[:max_sentences]
-        return '. '.join(summary_sentences).strip() + '.'
+    def generate_html_report(self, papers, news_items):
+        """美しいHTMLレポートを生成"""
+        jst_now = self.get_jst_time()
+        
+        # HTMLテンプレート
+        html_report = f"""
+        <!DOCTYPE html>
+        <html lang="ja">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>数理最適化 日次レポート</title>
+            <style>
+                body {{
+                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                    line-height: 1.6;
+                    margin: 0;
+                    padding: 20px;
+                    background-color: #f5f5f5;
+                    color: #333;
+                }}
+                .container {{
+                    max-width: 800px;
+                    margin: 0 auto;
+                    background-color: white;
+                    border-radius: 10px;
+                    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                    overflow: hidden;
+                }}
+                .header {{
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                    padding: 30px;
+                    text-align: center;
+                }}
+                .header h1 {{
+                    margin: 0;
+                    font-size: 28px;
+                    font-weight: 300;
+                }}
+                .header .date {{
+                    margin-top: 10px;
+                    font-size: 16px;
+                    opacity: 0.9;
+                }}
+                .section {{
+                    margin: 20px;
+                }}
+                .section-title {{
+                    font-size: 22px;
+                    font-weight: 600;
+                    margin: 30px 0 20px 0;
+                    padding: 15px;
+                    border-radius: 8px;
+                    display: flex;
+                    align-items: center;
+                }}
+                .section-title.papers {{
+                    background-color: #e3f2fd;
+                    border-left: 5px solid #2196f3;
+                    color: #1976d2;
+                }}
+                .section-title.news {{
+                    background-color: #fff8e1;
+                    border-left: 5px solid #ff9800;
+                    color: #f57c00;
+                }}
+                .item {{
+                    background-color: white;
+                    border: 1px solid #e0e0e0;
+                    border-radius: 8px;
+                    margin: 15px 0;
+                    padding: 20px;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+                    transition: box-shadow 0.3s ease;
+                }}
+                .item:hover {{
+                    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+                }}
+                .item-title {{
+                    font-size: 18px;
+                    font-weight: 600;
+                    margin-bottom: 12px;
+                    color: #2c3e50;
+                    line-height: 1.4;
+                }}
+                .item-meta {{
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 15px;
+                    margin-bottom: 12px;
+                    font-size: 14px;
+                    color: #666;
+                }}
+                .meta-item {{
+                    display: flex;
+                    align-items: center;
+                }}
+                .meta-label {{
+                    font-weight: 600;
+                    margin-right: 5px;
+                }}
+                .abstract {{
+                    color: #555;
+                    line-height: 1.6;
+                    margin-bottom: 15px;
+                }}
+                .link {{
+                    display: inline-block;
+                    background-color: #4CAF50;
+                    color: white;
+                    padding: 8px 16px;
+                    text-decoration: none;
+                    border-radius: 4px;
+                    font-size: 14px;
+                    transition: background-color 0.3s ease;
+                }}
+                .link:hover {{
+                    background-color: #45a049;
+                }}
+                .news-link {{
+                    background-color: #ff9800;
+                }}
+                .news-link:hover {{
+                    background-color: #f57c00;
+                }}
+                .relevance-stars {{
+                    color: #ffc107;
+                    font-size: 16px;
+                }}
+                .stats {{
+                    background-color: #f8f9fa;
+                    border-radius: 8px;
+                    padding: 20px;
+                    margin: 30px 20px;
+                    text-align: center;
+                }}
+                .stats-grid {{
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+                    gap: 20px;
+                    margin-top: 15px;
+                }}
+                .stat-item {{
+                    text-align: center;
+                }}
+                .stat-number {{
+                    font-size: 24px;
+                    font-weight: 700;
+                    color: #2196f3;
+                }}
+                .stat-label {{
+                    font-size: 14px;
+                    color: #666;
+                    margin-top: 5px;
+                }}
+                .footer {{
+                    text-align: center;
+                    padding: 20px;
+                    color: #999;
+                    font-size: 12px;
+                    border-top: 1px solid #eee;
+                }}
+                .no-content {{
+                    text-align: center;
+                    padding: 40px;
+                    color: #999;
+                    font-style: italic;
+                }}
+                .emoji {{
+                    margin-right: 8px;
+                }}
+                @media (max-width: 600px) {{
+                    .container {{
+                        margin: 10px;
+                        border-radius: 5px;
+                    }}
+                    .header {{
+                        padding: 20px;
+                    }}
+                    .header h1 {{
+                        font-size: 24px;
+                    }}
+                    .section {{
+                        margin: 15px;
+                    }}
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>🔬 数理最適化 日次レポート</h1>
+                    <div class="date">{jst_now.strftime('%Y年%m月%d日 %H:%M')} JST</div>
+                </div>
+                
+                <div class="section">
+                    <div class="section-title papers">
+                        <span class="emoji">📚</span>
+                        新着論文 ({len(papers)}件)
+                    </div>
+        """
+        
+        # 論文セクション
+        if papers:
+            for i, paper in enumerate(papers, 1):
+                authors_str = ', '.join(paper['authors'])
+                if len(paper['authors']) > 3:
+                    authors_str += " 他"
+                
+                categories_str = ', '.join(paper['categories'][:2])
+                
+                html_report += f"""
+                    <div class="item">
+                        <div class="item-title">{i}. {paper['title']}</div>
+                        <div class="item-meta">
+                            <div class="meta-item">
+                                <span class="meta-label">👥 著者:</span>
+                                {authors_str}
+                            </div>
+                            <div class="meta-item">
+                                <span class="meta-label">🏷️ カテゴリ:</span>
+                                {categories_str}
+                            </div>
+                            <div class="meta-item">
+                                <span class="meta-label">📅 公開日:</span>
+                                {paper['published']}
+                            </div>
+                        </div>
+                        <div class="abstract">{paper['abstract']}</div>
+                        <a href="{paper['url']}" class="link" target="_blank">論文を読む</a>
+                    </div>
+                """
+        else:
+            html_report += '<div class="no-content">本日は新着論文がありませんでした。</div>'
+        
+        # ニュースセクション
+        html_report += f"""
+                </div>
+                
+                <div class="section">
+                    <div class="section-title news">
+                        <span class="emoji">📰</span>
+                        数理最適化関連技術ニュース ({len(news_items)}件)
+                    </div>
+        """
+        
+        if news_items:
+            for i, news in enumerate(news_items, 1):
+                stars = '⭐' * news['relevance_score']
+                
+                html_report += f"""
+                    <div class="item">
+                        <div class="item-title">{i}. {news['title']}</div>
+                        <div class="item-meta">
+                            <div class="meta-item">
+                                <span class="meta-label">🎯 関連度:</span>
+                                <span class="relevance-stars">{stars}</span>
+                            </div>
+                            <div class="meta-item">
+                                <span class="meta-label">📅 公開日:</span>
+                                {news['published']}
+                            </div>
+                        </div>
+                        <div class="abstract">{news['summary']}</div>
+                        <a href="{news['link']}" class="link news-link" target="_blank">記事を読む</a>
+                    </div>
+                """
+        else:
+            html_report += '<div class="no-content">本日は関連ニュースがありませんでした。</div>'
+        
+        # 統計セクション
+        html_report += f"""
+                </div>
+                
+                <div class="stats">
+                    <h3>📊 収集統計</h3>
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <div class="stat-number">{len(papers)}</div>
+                            <div class="stat-label">論文数</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-number">{len(news_items)}</div>
+                            <div class="stat-label">ニュース数</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-number">{jst_now.strftime('%H:%M')}</div>
+                            <div class="stat-label">生成時刻 (JST)</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="footer">
+                    このレポートは自動生成されました<br>
+                    日本標準時 (JST) - {jst_now.strftime('%Y-%m-%d %H:%M:%S')}
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        return html_report
     
-    def generate_report(self, papers, news_items):
-        """日本語レポートを生成（日本時間対応）"""
+    def generate_text_report(self, papers, news_items):
+        """テキスト版レポートを生成（Discord用など）"""
         jst_now = self.get_jst_time()
         
         report = f"""
@@ -227,21 +527,28 @@ class OptimizationNewsCollector:
         
         return report
     
-    def send_email_report(self, report):
-        """Gmailでレポートを送信"""
+    def send_email_report(self, html_report, text_report):
+        """HTMLとテキスト両方に対応したメールを送信"""
         if not all([self.sender_email, self.sender_password, self.recipient_email]):
             print("❌ メール設定が不完全です")
             return False
         
         try:
-            msg = MIMEMultipart()
+            # マルチパートメッセージを作成
+            msg = MIMEMultipart('alternative')
             msg['From'] = self.sender_email
             msg['To'] = self.recipient_email
             jst_now = self.get_jst_time()
             msg['Subject'] = f"🔬 数理最適化レポート - {jst_now.strftime('%Y/%m/%d')} JST"
             
-            msg.attach(MIMEText(report, 'plain', 'utf-8'))
+            # テキスト版とHTML版の両方を添付
+            text_part = MIMEText(text_report, 'plain', 'utf-8')
+            html_part = MIMEText(html_report, 'html', 'utf-8')
             
+            msg.attach(text_part)
+            msg.attach(html_part)
+            
+            # SMTP送信
             server = smtplib.SMTP('smtp.gmail.com', 587)
             server.starttls()
             server.login(self.sender_email, self.sender_password)
@@ -249,7 +556,7 @@ class OptimizationNewsCollector:
             server.sendmail(self.sender_email, self.recipient_email, text)
             server.quit()
             
-            print("✅ メールで送信完了")
+            print("✅ HTMLメールで送信完了")
             return True
             
         except Exception as e:
@@ -283,18 +590,29 @@ class OptimizationNewsCollector:
             print(f"❌ Discord送信エラー: {e}")
             return False
     
-    def save_report_to_file(self, report):
-        """レポートをファイルに保存（日本時間でファイル名）"""
+    def save_report_to_file(self, html_report, text_report):
+        """レポートをファイルに保存（HTML版とテキスト版両方）"""
         jst_now = self.get_jst_time()
-        filename = f"report_{jst_now.strftime('%Y%m%d_%H%M')}_JST.md"
+        timestamp = jst_now.strftime('%Y%m%d_%H%M')
+        
+        html_filename = f"report_{timestamp}_JST.html"
+        text_filename = f"report_{timestamp}_JST.md"
+        
         try:
-            with open(filename, 'w', encoding='utf-8') as f:
-                f.write(report)
-            print(f"✅ レポートを {filename} に保存しました")
-            return filename
+            # HTML版を保存
+            with open(html_filename, 'w', encoding='utf-8') as f:
+                f.write(html_report)
+            print(f"✅ HTMLレポートを {html_filename} に保存しました")
+            
+            # テキスト版を保存
+            with open(text_filename, 'w', encoding='utf-8') as f:
+                f.write(text_report)
+            print(f"✅ テキストレポートを {text_filename} に保存しました")
+            
+            return html_filename, text_filename
         except Exception as e:
             print(f"❌ ファイル保存エラー: {e}")
-            return None
+            return None, None
     
     def run_daily_collection(self):
         """日次収集とレポート生成を実行"""
@@ -308,21 +626,22 @@ class OptimizationNewsCollector:
         papers = self.collect_arxiv_papers(days_back=2)  # 過去2日分
         news_items = self.collect_news_from_rss()
         
-        # レポート生成
-        report = self.generate_report(papers, news_items)
+        # レポート生成（HTML版とテキスト版）
+        html_report = self.generate_html_report(papers, news_items)
+        text_report = self.generate_text_report(papers, news_items)
         
         # レポート保存
-        self.save_report_to_file(report)
+        self.save_report_to_file(html_report, text_report)
         
         # レポート送信
-        email_sent = self.send_email_report(report)
-        discord_sent = self.send_discord_report(report)
+        email_sent = self.send_email_report(html_report, text_report)
+        discord_sent = self.send_discord_report(text_report)  # DiscordはMarkdown版
         
         print("=" * 50)
         print("📊 実行結果:")
         print(f"  📚 論文: {len(papers)}件")
         print(f"  📰 ニュース: {len(news_items)}件")
-        print(f"  📧 メール送信: {'✅' if email_sent else '❌'}")
+        print(f"  📧 HTMLメール送信: {'✅' if email_sent else '❌'}")
         print(f"  💬 Discord送信: {'✅' if discord_sent else '❌'}")
         print(f"  🕐 実行時刻: {jst_now.strftime('%Y-%m-%d %H:%M:%S')} JST")
         print("=" * 50)
@@ -337,8 +656,8 @@ class OptimizationNewsCollector:
 
 def main():
     """メイン実行関数"""
-    print("🔬 数理最適化論文・ニュース収集システム")
-    print("=" * 50)
+    print("🔬 数理最適化論文・ニュース収集システム (HTML メール対応版)")
+    print("=" * 60)
     
     collector = OptimizationNewsCollector()
     result = collector.run_daily_collection()
