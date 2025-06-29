@@ -54,15 +54,15 @@ class OptimizationNewsCollector:
             for result in client.results(search):
                 # 日本時間での日付比較
                 published_jst = result.published.astimezone(self.jst).date()
-                if published_jst >= cutoff_date:
-                    papers.append({
-                        'title': result.title.replace('\n', ' ').strip(),
-                        'authors': [author.name for author in result.authors[:3]],
-                        'abstract': result.summary.replace('\n', ' ').strip()[:500] + "...",
-                        'url': result.entry_id,
-                        'published': published_jst.strftime('%Y-%m-%d'),
-                        'categories': result.categories
-                    })
+#                if published_jst >= cutoff_date:
+                papers.append({
+                    'title': result.title.replace('\n', ' ').strip(),
+                    'authors': [author.name for author in result.authors[:3]],
+                    'abstract': result.summary.replace('\n', ' ').strip()[:500] + "...",
+                    'url': result.entry_id,
+                    'published': published_jst.strftime('%Y-%m-%d'),
+                    'categories': result.categories
+                })
             
             print(f"✅ 論文 {len(papers)} 件を収集しました")
             return papers
