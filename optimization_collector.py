@@ -658,6 +658,9 @@ def main():
     """メイン実行関数"""
     print("🔬 数理最適化論文・ニュース収集システム (HTML メール対応版)")
     print("=" * 60)
+
+    #テスト用
+    simple_arxiv_test()
     
     collector = OptimizationNewsCollector()
     result = collector.run_daily_collection()
@@ -665,6 +668,29 @@ def main():
     # 結果をJSONで出力（GitHub Actionsでの確認用）
     print("\n📄 実行結果（JSON）:")
     print(json.dumps(result, ensure_ascii=False, indent=2))
+
+
+
+# さらに簡単なテスト関数
+def simple_arxiv_test(self):
+    """最もシンプルなarXivテスト"""
+    import arxiv
+    
+    client = arxiv.Client()
+    search = arxiv.Search(
+        query="cat:math.OC",
+        max_results=5,
+        sort_by=arxiv.SortCriterion.SubmittedDate,
+        sort_order=arxiv.SortOrder.Descending
+    )
+    
+    print("最新5件の math.OC 論文:")
+    for i, result in enumerate(client.results(search), 1):
+        print(f"{i}. {result.title}")
+        print(f"   Published: {result.published}")
+        print(f"   URL: {result.entry_id}")
+        print()
+
 
 if __name__ == "__main__":
     main()
