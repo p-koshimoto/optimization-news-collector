@@ -623,7 +623,7 @@ class OptimizationNewsCollector:
         print("=" * 50)
         
         # データ収集
-        papers = self.collect_arxiv_papers(days_back=2)  # 過去2日分
+        papers = self.collect_arxiv_papers(days_back=31)  # 過去2日分
         news_items = self.collect_news_from_rss()
         
         # レポート生成（HTML版とテキスト版）
