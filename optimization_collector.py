@@ -26,6 +26,32 @@ class OptimizationNewsCollector:
     def get_jst_time(self):
         """現在の日本時間を取得"""
         return datetime.now(self.jst)
+
+
+    # さらに簡単なテスト関数
+    def simple_arxiv_test(self):
+        """最もシンプルなarXivテスト"""
+        import arxiv
+        
+        client = arxiv.Client()
+        search = arxiv.Search(
+            query="cat:math.OC",
+            max_results=5,
+            sort_by=arxiv.SortCriterion.SubmittedDate,
+            sort_order=arxiv.SortOrder.Descending
+        )
+        
+        print("最新5件の math.OC 論文:")
+        for i, result in enumerate(client.results(search), 1):
+            print(f"{i}. {result.title}")
+            print(f"   Published: {result.published}")
+            print(f"   URL: {result.entry_id}")
+            print()
+    
+
+
+
+
     
     def collect_arxiv_papers(self, days_back=1):
         """arXivから数理最適化関連論文を収集"""
@@ -668,28 +694,6 @@ def main():
     # 結果をJSONで出力（GitHub Actionsでの確認用）
     print("\n📄 実行結果（JSON）:")
     print(json.dumps(result, ensure_ascii=False, indent=2))
-
-
-
-# さらに簡単なテスト関数
-def simple_arxiv_test(self):
-    """最もシンプルなarXivテスト"""
-    import arxiv
-    
-    client = arxiv.Client()
-    search = arxiv.Search(
-        query="cat:math.OC",
-        max_results=5,
-        sort_by=arxiv.SortCriterion.SubmittedDate,
-        sort_order=arxiv.SortOrder.Descending
-    )
-    
-    print("最新5件の math.OC 論文:")
-    for i, result in enumerate(client.results(search), 1):
-        print(f"{i}. {result.title}")
-        print(f"   Published: {result.published}")
-        print(f"   URL: {result.entry_id}")
-        print()
 
 
 if __name__ == "__main__":
