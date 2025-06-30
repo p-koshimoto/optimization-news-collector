@@ -374,10 +374,11 @@ class OptimizationNewsCollector:
             "https://www.wired.com/feed/rss",
             "https://arstechnica.com/feed/",
             "https://feeds.feedburner.com/venturebeat/SZYF",
-            "https://www.zdnet.com/news/rss.xml",
-            "https://rss.cnn.com/rss/edition_technology.rss",  # 念のため残す
-            "https://feeds.reuters.com/reuters/technologyNews"  # 念のため残す
+            "https://www.zdnet.com/news/rss.xml"
         ]
+#            "https://rss.cnn.com/rss/edition_technology.rss",    #アクセスエラー
+#            "https://feeds.reuters.com/reuters/technologyNews"    #アクセスエラー
+
         
         # より柔軟なキーワードフィルタ（段階的アプローチ）
         # Tier 1: 直接関連（高スコア）
@@ -871,7 +872,7 @@ class OptimizationNewsCollector:
 ### {i}. {news['title']}
 
 - **要約**: {news['summary']}
-- **関連度**: {'⭐' * news['relevance_score']}
+- **関連度**: {'⭐' * int(news['relevance_score'])}
 - **リンク**: {news['link']}
 - **公開日**: {news['published']}
 
