@@ -647,6 +647,10 @@ class OptimizationNewsCollector:
         print("=" * 50)
         print(f"🚀 日次収集開始: {jst_now.strftime('%Y-%m-%d %H:%M:%S')} JST")
         print("=" * 50)
+
+        #テスト。後で消す。
+        simple_arxiv_test()
+
         
         # データ収集
         papers = self.collect_arxiv_papers(days_back=31)  # 過去2日分
@@ -685,16 +689,12 @@ def main():
     print("🔬 数理最適化論文・ニュース収集システム (HTML メール対応版)")
     print("=" * 60)
 
-    #テスト用
-    simple_arxiv_test()
-    
     collector = OptimizationNewsCollector()
     result = collector.run_daily_collection()
     
     # 結果をJSONで出力（GitHub Actionsでの確認用）
     print("\n📄 実行結果（JSON）:")
     print(json.dumps(result, ensure_ascii=False, indent=2))
-
 
 if __name__ == "__main__":
     main()
