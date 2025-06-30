@@ -326,7 +326,7 @@ class OptimizationNewsCollector:
                                         if keyword in combined_text)
                     
                     # 関連度スコアが2以上の記事のみ採用
-                    if relevance_score >= 2:
+                    if relevance_score >= 1:
                         # 日本時間で公開日を処理
                         published_date = getattr(entry, 'published', '')
                         if published_date:
@@ -829,14 +829,14 @@ class OptimizationNewsCollector:
         print(f"🚀 日次収集開始: {jst_now.strftime('%Y-%m-%d %H:%M:%S')} JST")
         print("=" * 50)
 
-        # テスト実行
-        test_success = self.simple_arxiv_test()
-        if not test_success:
-            print("⚠️ テストに失敗しましたが、本格収集を続行します...")
+#        # テスト実行
+#        test_success = self.simple_arxiv_test()
+#        if not test_success:
+#            print("⚠️ テストに失敗しましたが、本格収集を続行します...")
 
         
         # データ収集（修正版を使用）
-        papers = self.collect_arxiv_papers_fixed(days_back=7)  # 7日分に拡大
+        papers = self.collect_arxiv_papers_fixed(days_back=2)  # 2日分
         news_items = self.collect_news_from_rss()
         
         # レポート生成（HTML版とテキスト版）
@@ -866,7 +866,7 @@ class OptimizationNewsCollector:
 
 def main():
     """メイン実行関数"""
-    print("🔬 数理最適化論文・ニュース収集システム (HTML メール対応版)")
+    print("🔬 数理最適化論文・ニュース収集システム")
     print("=" * 60)
 
     collector = OptimizationNewsCollector()
