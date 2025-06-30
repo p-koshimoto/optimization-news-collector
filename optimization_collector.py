@@ -649,7 +649,7 @@ class OptimizationNewsCollector:
         print("=" * 50)
 
         #テスト。後で消す。
-        simple_arxiv_test()
+        self.simple_arxiv_test()
 
         
         # データ収集
