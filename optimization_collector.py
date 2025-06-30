@@ -771,7 +771,7 @@ class OptimizationNewsCollector:
         
         if news_items:
             for i, news in enumerate(news_items, 1):
-                stars = '⭐' * news['relevance_score']
+                stars = '⭐' * int(news['relevance_score'])
                 
                 html_report += f"""
                     <div class="item">
