@@ -361,6 +361,165 @@ class OptimizationNewsCollector:
         
         print(f"✅ 関連ニュース {len(news_items)} 件を収集しました")
         return news_items
+
+    def collect_news_from_rss_improved(self):
+        """改善版：RSSから最適化関連ニュースを収集"""
+        print("📰 ニュースを収集中...")
+        
+        # より現在でも使えるRSSソース（2024年対応）
+        rss_urls = [
+            # より確実に動作するRSSフィード
+            "https://www.theverge.com/rss/index.xml",
+            "https://techcrunch.com/feed/",
+            "https://www.wired.com/feed/rss",
+            "https://arstechnica.com/feed/",
+            "https://feeds.feedburner.com/venturebeat/SZYF",
+            "https://www.zdnet.com/news/rss.xml",
+            "https://rss.cnn.com/rss/edition_technology.rss",  # 念のため残す
+            "https://feeds.reuters.com/reuters/technologyNews"  # 念のため残す
+        ]
+        
+        # より柔軟なキーワードフィルタ（段階的アプローチ）
+        # Tier 1: 直接関連（高スコア）
+        high_priority_keywords = [
+            'optimization', 'optimisation', 'algorithm', 'programming',
+            'machine learning', 'AI', 'artificial intelligence',
+            'data science', 'operations research', 'solver'
+        ]
+        
+        # Tier 2: 間接関連（中スコア）
+        medium_priority_keywords = [
+            'analytics', 'efficiency', 'performance', 'automation',
+            'neural network', 'deep learning', 'model', 'prediction',
+            'computational', 'mathematical', 'statistical'
+        ]
+        
+        # Tier 3: 技術関連（低スコア）
+        low_priority_keywords = [
+            'software', 'technology', 'tech', 'innovation',
+            'research', 'development', 'computing', 'digital'
+        ]
+        
+        # 除外キーワードを減らす（過度な除外を防ぐ）
+        exclude_keywords = [
+            'celebrity', 'entertainment', 'sports', 'weather',
+            'crime', 'accident', 'war', 'fashion', 'food', 'travel'
+        ]
+        
+        news_items = []
+        
+        for rss_url in rss_urls:
+            try:
+                print(f"  🔍 取得中: {rss_url}")
+                
+                # タイムアウトとユーザーエージェントを設定
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                }
+                
+                # まずHTTPでアクセス可能かチェック
+                try:
+                    response = requests.get(rss_url, headers=headers, timeout=10)
+                    if response.status_code != 200:
+                        print(f"    ⚠️ HTTP {response.status_code}: {rss_url}")
+                        continue
+                except Exception as e:
+                    print(f"    ⚠️ アクセスエラー: {e}")
+                    continue
+                
+                # feedparserで解析
+                feed = feedparser.parse(rss_url)
+                
+                if not feed.entries:
+                    print(f"    ⚠️ エントリなし: {rss_url}")
+                    continue
+                
+                print(f"    ✅ {len(feed.entries)}件のエントリを取得")
+                
+                # より多くのエントリをチェック（20件に増加）
+                for entry in feed.entries[:20]:
+                    try:
+                        title_lower = entry.title.lower()
+                        summary_lower = getattr(entry, 'summary', '').lower()
+                        combined_text = title_lower + ' ' + summary_lower
+                        
+                        # 除外キーワードチェック（緩和）
+                        exclude_count = sum(1 for exclude in exclude_keywords 
+                                          if exclude in combined_text)
+                        if exclude_count >= 2:  # 2個以上の除外キーワードがある場合のみ除外
+                            continue
+                        
+                        # 段階的関連度スコア計算
+                        high_score = sum(2 for keyword in high_priority_keywords 
+                                       if keyword in combined_text)
+                        medium_score = sum(1 for keyword in medium_priority_keywords 
+                                         if keyword in combined_text)
+                        low_score = sum(0.5 for keyword in low_priority_keywords 
+                                      if keyword in combined_text)
+                        
+                        total_relevance_score = high_score + medium_score + low_score
+                        
+                        # より緩い閾値（1.0以上で採用）
+                        if total_relevance_score >= 1.0:
+                            # 日本時間で公開日を処理
+                            published_date = getattr(entry, 'published', '')
+                            if published_date:
+                                try:
+                                    # より柔軟な日付パース
+                                    from dateutil import parser
+                                    pub_dt = parser.parse(published_date)
+                                    if pub_dt.tzinfo is None:
+                                        pub_dt = pytz.utc.localize(pub_dt)
+                                    published_jst = pub_dt.astimezone(self.jst).strftime('%Y-%m-%d %H:%M JST')
+                                except:
+                                    published_jst = published_date[:19] if len(published_date) > 19 else published_date
+                            else:
+                                published_jst = '日時不明'
+                            
+                            # 重複チェック（URLベース）
+                            if not any(item['link'] == entry.link for item in news_items):
+                                news_items.append({
+                                    'title': entry.title.strip(),
+                                    'link': entry.link,
+                                    'published': published_jst,
+                                    'summary': getattr(entry, 'summary', '')[:300] + "...",
+                                    'relevance_score': round(total_relevance_score, 1),
+                                    'source_url': rss_url  # デバッグ用にソースを記録
+                                })
+                                
+                                print(f"    📄 採用: {entry.title[:50]}... (スコア: {total_relevance_score:.1f})")
+                    
+                    except Exception as e:
+                        print(f"    ⚠️ エントリ処理エラー: {e}")
+                        continue
+                        
+            except Exception as e:
+                print(f"  ❌ RSS取得エラー ({rss_url}): {e}")
+                continue
+            
+            # API制限を考慮して少し待機
+            time.sleep(0.5)
+        
+        # 関連度スコア順でソート
+        news_items.sort(key=lambda x: x['relevance_score'], reverse=True)
+        
+        # 上位10件に制限（元の5件から増加）
+        news_items = news_items[:10]
+        
+        print(f"✅ 関連ニュース {len(news_items)} 件を収集しました")
+        
+        # デバッグ情報の出力
+        if news_items:
+            print("📊 収集されたニュースの詳細:")
+            for i, item in enumerate(news_items, 1):
+                print(f"  {i}. スコア{item['relevance_score']}: {item['title'][:60]}...")
+        else:
+            print("⚠️ フィルタリング後のニュースが0件です。以下を確認してください：")
+            print("  1. RSSフィードのアクセス状況")
+            print("  2. キーワードフィルタの設定")
+            print("  3. 除外キーワードの設定")
+        
+        return news_items
     
     def generate_html_report(self, papers, news_items):
         """美しいHTMLレポートを生成"""
@@ -837,7 +996,8 @@ class OptimizationNewsCollector:
         
         # データ収集（修正版を使用）
         papers = self.collect_arxiv_papers_fixed(days_back=2)  # 2日分
-        news_items = self.collect_news_from_rss()
+#        news_items = self.collect_news_from_rss()
+        news_items = self.collect_news_from_rss_improved()
         
         # レポート生成（HTML版とテキスト版）
         html_report = self.generate_html_report(papers, news_items)
