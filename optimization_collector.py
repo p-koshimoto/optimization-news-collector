@@ -11,6 +11,7 @@ from email import encoders
 import os
 import sys
 import pytz
+import time
 
 class OptimizationNewsCollector:
     def __init__(self):
@@ -18,7 +19,6 @@ class OptimizationNewsCollector:
         self.recipient_email = os.getenv('RECIPIENT_EMAIL')
         self.sender_email = os.getenv('SENDER_EMAIL')
         self.sender_password = os.getenv('GMAIL_APP_PASSWORD')
-        self.discord_webhook = os.getenv('DISCORD_WEBHOOK')
         
         # 日本時間のタイムゾーン設定
         self.jst = pytz.timezone('Asia/Tokyo')
@@ -28,74 +28,255 @@ class OptimizationNewsCollector:
         return datetime.now(self.jst)
 
 
-    # さらに簡単なテスト関数
     def simple_arxiv_test(self):
-        """最もシンプルなarXivテスト"""
-        import arxiv
-        
-        client = arxiv.Client()
-        search = arxiv.Search(
-            query="cat:math.OC",
-            max_results=5,
-            sort_by=arxiv.SortCriterion.SubmittedDate,
-            sort_order=arxiv.SortOrder.Descending
-        )
-        
+        """最もシンプルなarXivテスト（修正版）"""
         print("最新5件の math.OC 論文:")
-        for i, result in enumerate(client.results(search), 1):
-            print(f"{i}. {result.title}")
-            print(f"   Published: {result.published}")
-            print(f"   URL: {result.entry_id}")
-            print()
-    
-
-
-
-
-    
-    def collect_arxiv_papers(self, days_back=1):
-        """arXivから数理最適化関連論文を収集"""
-        print("📚 arXivから論文を収集中...")
         
         try:
-            # より具体的な数理最適化関連のクエリ
+            # Method 1: arxivライブラリを使用（修正版）
             client = arxiv.Client()
+            
+            # より安全な設定
             search = arxiv.Search(
-                query=(
-                    "cat:math.OC OR "
-                    "(cat:cs.DM AND (ti:optimization OR ti:programming OR ti:algorithm)) OR "
-                    "(cat:stat.ML AND ti:optimization) OR "
-                    "ti:「linear programming」 OR ti:「integer programming」 OR "
-                    "ti:「convex optimization」 OR ti:「nonlinear programming」 OR "
-                    "ti:「combinatorial optimization」 OR ti:「stochastic optimization」"
-                ),
-                max_results=20,
+                query="cat:math.OC",
+                max_results=5,
                 sort_by=arxiv.SortCriterion.SubmittedDate,
                 sort_order=arxiv.SortOrder.Descending
             )
             
-            papers = []
-            cutoff_date = self.get_jst_time().date() - timedelta(days=days_back)
+            # リトライ機能付きで実行
+            retry_count = 0
+            max_retries = 3
             
-            for result in client.results(search):
-                # 日本時間での日付比較
+            while retry_count < max_retries:
+                try:
+                    results = list(client.results(search))
+                    break
+                except (arxiv.arxiv.HTTPError, requests.exceptions.RequestException) as e:
+                    retry_count += 1
+                    print(f"  ⚠️ 試行 {retry_count}/{max_retries} でエラー: {e}")
+                    if retry_count < max_retries:
+                        print(f"  ⏳ {2 ** retry_count}秒後にリトライします...")
+                        time.sleep(2 ** retry_count)  # 指数バックオフ
+                    else:
+                        print("  ❌ arxivライブラリでの取得に失敗しました。代替方法を試します...")
+                        return self.fallback_arxiv_test()
+            
+            for i, result in enumerate(results, 1):
+                print(f"{i}. {result.title}")
+                print(f"   Published: {result.published}")
+                print(f"   URL: {result.entry_id}")
+                print()
+                
+            print(f"✅ arxivライブラリで {len(results)} 件取得成功")
+            return True
+            
+        except Exception as e:
+            print(f"❌ arxivライブラリでエラー: {e}")
+            print("代替方法を試します...")
+            return self.fallback_arxiv_test()
+    
+    def fallback_arxiv_test(self):
+        """フォールバック：直接APIを叩く方法"""
+        print("\n--- フォールバック: 直接API呼び出し ---")
+        
+        try:
+            # arXiv APIを直接呼び出し
+            api_url = "https://export.arxiv.org/api/query"
+            params = {
+                'search_query': 'cat:math.OC',
+                'start': 0,
+                'max_results': 5,
+                'sortBy': 'submittedDate',
+                'sortOrder': 'descending'
+            }
+            
+            response = requests.get(api_url, params=params, timeout=30)
+            response.raise_for_status()
+            
+            # feedparserでXMLを解析
+            feed = feedparser.parse(response.content)
+            
+            if not feed.entries:
+                print("❌ APIからデータを取得できませんでした")
+                return False
+            
+            print("最新5件の math.OC 論文 (直接API):")
+            for i, entry in enumerate(feed.entries, 1):
+                print(f"{i}. {entry.title}")
+                print(f"   Published: {entry.published}")
+                print(f"   URL: {entry.id}")
+                print()
+            
+            print(f"✅ 直接API呼び出しで {len(feed.entries)} 件取得成功")
+            return True
+            
+        except Exception as e:
+            print(f"❌ 直接API呼び出しでもエラー: {e}")
+            return False
+
+
+
+
+    
+    def collect_arxiv_papers_fixed(self, days_back=2):
+        """修正版：arXivから数理最適化関連論文を収集"""
+        print("📚 arXivから論文を収集中...")
+        
+        papers = []
+        cutoff_date = self.get_jst_time().date() - timedelta(days=days_back)
+        
+        # Method 1: arxivライブラリを試す
+        try:
+            client = arxiv.Client()
+            search = arxiv.Search(
+                query=(
+                    "cat:math.OC OR "
+                    "(cat:cs.DM AND (optimization OR programming OR algorithm)) OR "
+                    "(cat:stat.ML AND optimization) OR "
+                    'ti:"linear programming" OR ti:"integer programming" OR '
+                    'ti:"convex optimization" OR ti:"nonlinear programming" OR '
+                    'ti:"combinatorial optimization" OR ti:"stochastic optimization"'
+                ),
+                max_results=50,
+                sort_by=arxiv.SortCriterion.SubmittedDate,
+                sort_order=arxiv.SortOrder.Descending
+            )
+            
+            # リトライ機能付きで実行
+            results = []
+            retry_count = 0
+            max_retries = 3
+            
+            while retry_count < max_retries:
+                try:
+                    results = list(client.results(search))
+                    break
+                except Exception as e:
+                    retry_count += 1
+                    print(f"  ⚠️ arxivライブラリ試行 {retry_count}/{max_retries} でエラー: {e}")
+                    if retry_count < max_retries:
+                        time.sleep(2 ** retry_count)
+                    else:
+                        print("  ❌ arxivライブラリに失敗、直接API呼び出しを試します...")
+                        return self.collect_arxiv_papers_direct_api(days_back)
+            
+            # 結果を処理
+            for result in results:
                 published_jst = result.published.astimezone(self.jst).date()
-#                if published_jst >= cutoff_date:
-                papers.append({
-                    'title': result.title.replace('\n', ' ').strip(),
-                    'authors': [author.name for author in result.authors[:3]],
-                    'abstract': result.summary.replace('\n', ' ').strip()[:500] + "...",
-                    'url': result.entry_id,
-                    'published': published_jst.strftime('%Y-%m-%d'),
-                    'categories': result.categories
-                })
+                updated_jst = result.updated.astimezone(self.jst).date() if result.updated else None
+                
+                if published_jst >= cutoff_date or (updated_jst and updated_jst >= cutoff_date):
+                    papers.append({
+                        'title': result.title.replace('\n', ' ').strip(),
+                        'authors': [author.name for author in result.authors[:3]],
+                        'abstract': result.summary.replace('\n', ' ').strip()[:500] + "...",
+                        'url': result.entry_id,
+                        'published': published_jst.strftime('%Y-%m-%d'),
+                        'updated': updated_jst.strftime('%Y-%m-%d') if updated_jst else None,
+                        'categories': result.categories
+                    })
             
-            print(f"✅ 論文 {len(papers)} 件を収集しました")
+            print(f"✅ arxivライブラリで論文 {len(papers)} 件を収集しました")
             return papers
             
         except Exception as e:
-            print(f"❌ arXiv収集エラー: {e}")
+            print(f"❌ arxivライブラリでエラー: {e}")
+            print("直接API呼び出しを試します...")
+            return self.collect_arxiv_papers_direct_api(days_back)
+
+    
+    def collect_arxiv_papers_direct_api(self, days_back=2):
+        """直接API呼び出しでarXiv論文を収集"""
+        print("📚 直接APIでarXivから論文を収集中...")
+        
+        papers = []
+        cutoff_date = self.get_jst_time().date() - timedelta(days=days_back)
+        
+        try:
+            # クエリを分割してそれぞれ取得
+            queries = [
+                "cat:math.OC",
+                "cat:cs.DM AND optimization",
+                "cat:stat.ML AND optimization"
+            ]
+            
+            for query in queries:
+                try:
+                    api_url = "https://export.arxiv.org/api/query"
+                    params = {
+                        'search_query': query,
+                        'start': 0,
+                        'max_results': 20,
+                        'sortBy': 'submittedDate',
+                        'sortOrder': 'descending'
+                    }
+                    
+                    response = requests.get(api_url, params=params, timeout=30)
+                    response.raise_for_status()
+                    
+                    feed = feedparser.parse(response.content)
+                    
+                    for entry in feed.entries:
+                        # 日付処理
+                        try:
+                            published_dt = datetime.strptime(entry.published, '%Y-%m-%dT%H:%M:%SZ')
+                            published_dt = pytz.utc.localize(published_dt)
+                            published_jst = published_dt.astimezone(self.jst).date()
+                            
+                            updated_jst = None
+                            if hasattr(entry, 'updated'):
+                                try:
+                                    updated_dt = datetime.strptime(entry.updated, '%Y-%m-%dT%H:%M:%SZ')
+                                    updated_dt = pytz.utc.localize(updated_dt)
+                                    updated_jst = updated_dt.astimezone(self.jst).date()
+                                except:
+                                    pass
+                            
+                            # 日付フィルタ
+                            if published_jst >= cutoff_date or (updated_jst and updated_jst >= cutoff_date):
+                                # 重複チェック
+                                if not any(p['url'] == entry.id for p in papers):
+                                    # 著者処理
+                                    authors = []
+                                    if hasattr(entry, 'authors'):
+                                        authors = [author.name for author in entry.authors[:3]]
+                                    elif hasattr(entry, 'author'):
+                                        authors = [entry.author]
+                                    
+                                    # カテゴリ処理
+                                    categories = []
+                                    if hasattr(entry, 'arxiv_primary_category'):
+                                        categories.append(entry.arxiv_primary_category['term'])
+                                    
+                                    papers.append({
+                                        'title': entry.title.replace('\n', ' ').strip(),
+                                        'authors': authors,
+                                        'abstract': entry.summary.replace('\n', ' ').strip()[:500] + "...",
+                                        'url': entry.id,
+                                        'published': published_jst.strftime('%Y-%m-%d'),
+                                        'updated': updated_jst.strftime('%Y-%m-%d') if updated_jst else None,
+                                        'categories': categories
+                                    })
+                        
+                        except Exception as e:
+                            print(f"  ⚠️ エントリ処理エラー: {e}")
+                            continue
+                
+                except Exception as e:
+                    print(f"  ⚠️ クエリ '{query}' でエラー: {e}")
+                    continue
+                
+                # API制限を考慮して少し待機
+                time.sleep(1)
+            
+            print(f"✅ 直接APIで論文 {len(papers)} 件を収集しました")
+            return papers
+            
+        except Exception as e:
+            print(f"❌ 直接API呼び出しエラー: {e}")
             return []
+
     
     def collect_news_from_rss(self):
         """RSSから最適化関連ニュースを収集（フィルタリング強化）"""
@@ -648,12 +829,14 @@ class OptimizationNewsCollector:
         print(f"🚀 日次収集開始: {jst_now.strftime('%Y-%m-%d %H:%M:%S')} JST")
         print("=" * 50)
 
-        #テスト。後で消す。
-        self.simple_arxiv_test()
+        # テスト実行
+        test_success = self.simple_arxiv_test()
+        if not test_success:
+            print("⚠️ テストに失敗しましたが、本格収集を続行します...")
 
         
-        # データ収集
-        papers = self.collect_arxiv_papers(days_back=31)  # 過去2日分
+        # データ収集（修正版を使用）
+        papers = self.collect_arxiv_papers_fixed(days_back=7)  # 7日分に拡大
         news_items = self.collect_news_from_rss()
         
         # レポート生成（HTML版とテキスト版）
@@ -665,14 +848,12 @@ class OptimizationNewsCollector:
         
         # レポート送信
         email_sent = self.send_email_report(html_report, text_report)
-        discord_sent = self.send_discord_report(text_report)  # DiscordはMarkdown版
         
         print("=" * 50)
         print("📊 実行結果:")
         print(f"  📚 論文: {len(papers)}件")
         print(f"  📰 ニュース: {len(news_items)}件")
         print(f"  📧 HTMLメール送信: {'✅' if email_sent else '❌'}")
-        print(f"  💬 Discord送信: {'✅' if discord_sent else '❌'}")
         print(f"  🕐 実行時刻: {jst_now.strftime('%Y-%m-%d %H:%M:%S')} JST")
         print("=" * 50)
         
@@ -680,7 +861,6 @@ class OptimizationNewsCollector:
             'papers_count': len(papers),
             'news_count': len(news_items),
             'email_sent': email_sent,
-            'discord_sent': discord_sent,
             'execution_time_jst': jst_now.strftime('%Y-%m-%d %H:%M:%S JST')
         }
 
