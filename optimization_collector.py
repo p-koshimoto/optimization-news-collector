@@ -33,15 +33,15 @@ class OptimizationNewsCollector:
         return datetime.now(self.jst)
 
     def summarize_and_translate(self, text, max_len=512):
-    """英語の要約と日本語翻訳を同時に行う"""
-    text = text[:2048]  # 長文対策
-    try:
-        summary = self.summarization_pipeline(text, max_length=max_len, min_length=30, do_sample=False)[0]['summary_text']
-        translated = self.translation_pipeline(summary)[0]['translation_text']
-        return translated
-    except Exception as e:
-        print(f"⚠️ 要約・翻訳エラー: {e}")
-        return "(翻訳失敗)"
+        """英語の要約と日本語翻訳を同時に行う"""
+        text = text[:2048]  # 長文対策
+        try:
+            summary = self.summarization_pipeline(text, max_length=max_len, min_length=30, do_sample=False)[0]['summary_text']
+            translated = self.translation_pipeline(summary)[0]['translation_text']
+            return translated
+        except Exception as e:
+            print(f"⚠️ 要約・翻訳エラー: {e}")
+            return "(翻訳失敗)"
 
     def simple_arxiv_test(self):
         """最もシンプルなarXivテスト（修正版）"""
