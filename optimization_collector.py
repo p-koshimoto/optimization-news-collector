@@ -25,7 +25,7 @@ class OptimizationNewsCollector:
         self.jst = pytz.timezone('Asia/Tokyo')
 
         # 翻訳・要約の初期化処理
-        self.translation_pipeline = pipeline("translation_en_to_ja", model="Helsinki-NLP/opus-mt-en-ja")
+        self.translation_pipeline = pipeline("translation_en_to_ja", model="staka/fugumt-en-ja")
         self.summarization_pipeline = pipeline("summarization", model="sshleifer/distilbart-cnn-12-6")
     
     def get_jst_time(self):
