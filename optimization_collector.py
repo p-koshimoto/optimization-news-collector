@@ -12,6 +12,7 @@ import os
 import sys
 import pytz
 import time
+from transformers import pipeline
 
 class OptimizationNewsCollector:
     def __init__(self):
@@ -22,11 +23,25 @@ class OptimizationNewsCollector:
         
         # 日本時間のタイムゾーン設定
         self.jst = pytz.timezone('Asia/Tokyo')
-        
+
+        # 翻訳・要約の初期化処理
+        self.translation_pipeline = pipeline("translation_en_to_ja", model="Helsinki-NLP/opus-mt-en-ja")
+        self.summarization_pipeline = pipeline("summarization", model="sshleifer/distilbart-cnn-12-6")
+    
     def get_jst_time(self):
         """現在の日本時間を取得"""
         return datetime.now(self.jst)
 
+    def summarize_and_translate(self, text, max_len=512):
+    """英語の要約と日本語翻訳を同時に行う"""
+    text = text[:2048]  # 長文対策
+    try:
+        summary = self.summarization_pipeline(text, max_length=max_len, min_length=30, do_sample=False)[0]['summary_text']
+        translated = self.translation_pipeline(summary)[0]['translation_text']
+        return translated
+    except Exception as e:
+        print(f"⚠️ 要約・翻訳エラー: {e}")
+        return "(翻訳失敗)"
 
     def simple_arxiv_test(self):
         """最もシンプルなarXivテスト（修正版）"""
@@ -174,7 +189,8 @@ class OptimizationNewsCollector:
                         'url': result.entry_id,
                         'published': published_jst.strftime('%Y-%m-%d'),
                         'updated': updated_jst.strftime('%Y-%m-%d') if updated_jst else None,
-                        'categories': result.categories
+                        'categories': result.categories,
+                        'translated_summary': self.summarize_and_translate(result.summary)
                     })
             
             print(f"✅ arxivライブラリで論文 {len(papers)} 件を収集しました")
@@ -256,7 +272,8 @@ class OptimizationNewsCollector:
                                         'url': entry.id,
                                         'published': published_jst.strftime('%Y-%m-%d'),
                                         'updated': updated_jst.strftime('%Y-%m-%d') if updated_jst else None,
-                                        'categories': categories
+                                        'categories': categories,
+                                        'translated_summary': self.summarize_and_translate(entry.summary)
                                     })
                         
                         except Exception as e:
@@ -344,7 +361,9 @@ class OptimizationNewsCollector:
                             'link': entry.link,
                             'published': published_jst,
                             'summary': getattr(entry, 'summary', '')[:300] + "...",
-                            'relevance_score': relevance_score
+                            'relevance_score': relevance_score,
+                            'source_url': rss_url,
+                            'translated_summary': self.summarize_and_translate(getattr(entry, 'summary', ''))
                         })
                         
                         # 十分な数の関連ニュースが集まったら終了
@@ -485,7 +504,8 @@ class OptimizationNewsCollector:
                                     'published': published_jst,
                                     'summary': getattr(entry, 'summary', '')[:300] + "...",
                                     'relevance_score': round(total_relevance_score, 1),
-                                    'source_url': rss_url  # デバッグ用にソースを記録
+                                    'source_url': rss_url,  # デバッグ用にソースを記録
+                                    'translated_summary': self.summarize_and_translate(getattr(entry, 'summary', ''))
                                 })
                                 
                                 print(f"    📄 採用: {entry.title[:50]}... (スコア: {total_relevance_score:.1f})")
@@ -752,6 +772,10 @@ class OptimizationNewsCollector:
                             </div>
                         </div>
                         <div class="abstract">{paper['abstract']}</div>
+                        <div class="abstract">
+                            <strong>📝 日本語要約:</strong><br>
+                            {paper.get('translated_summary', '(翻訳なし)')}
+                        </div>
                         <a href="{paper['url']}" class="link" target="_blank">論文を読む</a>
                     </div>
                 """
@@ -787,6 +811,10 @@ class OptimizationNewsCollector:
                             </div>
                         </div>
                         <div class="abstract">{news['summary']}</div>
+                        <div class="abstract">
+                            <strong>📝 日本語要約:</strong><br>
+                            {news.get('translated_summary', '(翻訳なし)')}
+                        </div>                        
                         <a href="{news['link']}" class="link news-link" target="_blank">記事を読む</a>
                     </div>
                 """
