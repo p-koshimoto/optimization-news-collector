@@ -3,7 +3,7 @@ name: 📊 Daily Optimization Report
 on:
   schedule:
     # 毎日日本時間 9:00 (UTC 0:00) に実行
-    - cron: '0 21 * * *'
+    - cron: '50 23 * * *'
   workflow_dispatch: # 手動実行も可能
 
 jobs:
