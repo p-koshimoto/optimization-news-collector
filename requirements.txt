@@ -1,7 +1,12 @@
+--find-links https://download.pytorch.org/whl/torch_stable.html
+
+# 基本ライブラリ
 arxiv>=1.4.0
 feedparser>=6.0.0
 requests>=2.25.0
 pytz>=2021.1
+
+# 翻訳・NLPモデル用
 transformers>=4.40.0
 sentencepiece>=0.1.99
-torch>=2.0.0
+torch==2.0.1+cpu
