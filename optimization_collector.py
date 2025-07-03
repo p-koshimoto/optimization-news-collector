@@ -12,7 +12,8 @@ import os
 import sys
 import pytz
 import time
-from transformers import pipeline
+from transformers import pipeline, M2M100ForConditionalGeneration, M2M100Tokenizer
+import torch
 
 class OptimizationNewsCollector:
     def __init__(self):
@@ -24,24 +25,137 @@ class OptimizationNewsCollector:
         # 日本時間のタイムゾーン設定
         self.jst = pytz.timezone('Asia/Tokyo')
 
-        # 翻訳・要約の初期化処理
-        self.translation_pipeline = pipeline("translation_en_to_ja", model="staka/fugumt-en-ja")
-        self.summarization_pipeline = pipeline("summarization", model="sshleifer/distilbart-cnn-12-6")
-    
+        # M2M100翻訳モデルの初期化
+        self.setup_translation_model()
+        
+        # 優先度の高いキーワード（積付計画最適化、配送計画問題、スケジューリング問題）
+        self.priority_keywords = [
+            'packing', 'bin packing', 'container packing', 'loading',
+            'vehicle routing', 'delivery', 'distribution', 'logistics',
+            'scheduling', 'task scheduling', 'job scheduling', 'resource scheduling',
+            'timetabling', 'workforce scheduling'
+        ]
+
+    def setup_translation_model(self):
+        """M2M100翻訳モデルをセットアップ（キャッシュ対応）"""
+        print("🔧 M2M100翻訳モデルを初期化中...")
+        
+        # キャッシュディレクトリの設定
+        cache_dir = os.getenv('TRANSFORMERS_CACHE', './model_cache')
+        os.makedirs(cache_dir, exist_ok=True)
+        
+        try:
+            # M2M100-418Mモデルを使用（より高精度）
+            model_name = "facebook/m2m100_418M"
+            
+            # デバイス設定（GPU利用可能ならGPU、そうでなければCPU）
+            device = 0 if torch.cuda.is_available() else -1
+            
+            # トークナイザーとモデルを個別に読み込み
+            self.tokenizer = M2M100Tokenizer.from_pretrained(
+                model_name,
+                cache_dir=cache_dir
+            )
+            self.model = M2M100ForConditionalGeneration.from_pretrained(
+                model_name,
+                cache_dir=cache_dir
+            )
+            
+            # デバイスに移動
+            if torch.cuda.is_available():
+                self.model = self.model.cuda()
+                print("✅ GPU使用でM2M100を初期化しました")
+            else:
+                print("✅ CPU使用でM2M100を初期化しました")
+                
+        except Exception as e:
+            print(f"❌ M2M100初期化エラー: {e}")
+            print("フォールバック: 簡単な翻訳パイプラインを使用します")
+            try:
+                self.translation_pipeline = pipeline(
+                    "translation_en_to_ja", 
+                    model="staka/fugumt-en-ja",
+                    cache_dir=cache_dir
+                )
+                self.model = None
+                self.tokenizer = None
+                print("✅ フォールバック翻訳モデルを初期化しました")
+            except Exception as e2:
+                print(f"❌ フォールバック翻訳モデル初期化エラー: {e2}")
+                self.translation_pipeline = None
+                self.model = None
+                self.tokenizer = None
+   
     def get_jst_time(self):
         """現在の日本時間を取得"""
         return datetime.now(self.jst)
 
-    def summarize_and_translate(self, text, max_len=512):
-        """英語の要約と日本語翻訳を同時に行う"""
-        text = text[:2048]  # 長文対策
+    def translate_text(self, text, max_length=2048):
+        """M2M100を使用してテキストを英語から日本語に翻訳"""
+        if not text or text.strip() == "":
+            return ""
+        
+        # テキストの前処理
+        text = text.strip()
+        if len(text) > 1000:  # 長すぎるテキストは切り詰める
+            text = text[:1000] + "..."
+        
         try:
-            summary = self.summarization_pipeline(text, max_length=max_len, min_length=30, do_sample=False)[0]['summary_text']
-            translated = self.translation_pipeline(summary)[0]['translation_text']
-            return translated
+            if self.model and self.tokenizer:
+                # M2M100を使用した翻訳
+                self.tokenizer.src_lang = "en"
+                encoded = self.tokenizer(text, return_tensors="pt", max_length=512, truncation=True)
+                
+                # デバイスに移動
+                if torch.cuda.is_available():
+                    encoded = {k: v.cuda() for k, v in encoded.items()}
+                
+                # 翻訳実行
+                generated_tokens = self.model.generate(
+                    **encoded,
+                    forced_bos_token_id=self.tokenizer.get_lang_id("ja"),
+                    max_length=max_length,
+                    num_beams=5,
+                    early_stopping=True
+                )
+                
+                translated = self.tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)[0]
+                return translated
+                
+            elif self.translation_pipeline:
+                # フォールバック翻訳
+                result = self.translation_pipeline(text, max_length=max_length)
+                return result[0]['translation_text']
+            else:
+                # 翻訳不可の場合
+                return "(翻訳不可)"
+                
         except Exception as e:
-            print(f"⚠️ 要約・翻訳エラー: {e}")
+            print(f"⚠️ 翻訳エラー: {e}")
             return "(翻訳失敗)"
+
+    def calculate_priority_score(self, title, summary=""):
+        """優先度スコアを計算（積付計画最適化、配送計画問題、スケジューリング問題を最優先）"""
+        combined_text = (title + " " + summary).lower()
+        
+        # 優先キーワードのスコア計算
+        priority_score = 0
+        for keyword in self.priority_keywords:
+            if keyword in combined_text:
+                priority_score += 10  # 高い優先度スコア
+        
+        # 一般的な最適化キーワードのスコア
+        general_keywords = [
+            'optimization', 'optimisation', 'algorithm', 'programming',
+            'linear programming', 'integer programming', 'convex',
+            'mathematical programming', 'constraint', 'heuristic'
+        ]
+        
+        for keyword in general_keywords:
+            if keyword in combined_text:
+                priority_score += 1
+        
+        return priority_score
 
     def simple_arxiv_test(self):
         """最もシンプルなarXivテスト（修正版）"""
@@ -88,52 +202,8 @@ class OptimizationNewsCollector:
             
         except Exception as e:
             print(f"❌ arxivライブラリでエラー: {e}")
-            print("代替方法を試します...")
-            return self.fallback_arxiv_test()
-    
-    def fallback_arxiv_test(self):
-        """フォールバック：直接APIを叩く方法"""
-        print("\n--- フォールバック: 直接API呼び出し ---")
-        
-        try:
-            # arXiv APIを直接呼び出し
-            api_url = "https://export.arxiv.org/api/query"
-            params = {
-                'search_query': 'cat:math.OC',
-                'start': 0,
-                'max_results': 5,
-                'sortBy': 'submittedDate',
-                'sortOrder': 'descending'
-            }
-            
-            response = requests.get(api_url, params=params, timeout=30)
-            response.raise_for_status()
-            
-            # feedparserでXMLを解析
-            feed = feedparser.parse(response.content)
-            
-            if not feed.entries:
-                print("❌ APIからデータを取得できませんでした")
-                return False
-            
-            print("最新5件の math.OC 論文 (直接API):")
-            for i, entry in enumerate(feed.entries, 1):
-                print(f"{i}. {entry.title}")
-                print(f"   Published: {entry.published}")
-                print(f"   URL: {entry.id}")
-                print()
-            
-            print(f"✅ 直接API呼び出しで {len(feed.entries)} 件取得成功")
-            return True
-            
-        except Exception as e:
-            print(f"❌ 直接API呼び出しでもエラー: {e}")
             return False
-
-
-
-
-    
+        
     def collect_arxiv_papers_fixed(self, days_back=2):
         """修正版：arXivから数理最適化関連論文を収集"""
         print("📚 arXivから論文を収集中...")
@@ -151,7 +221,8 @@ class OptimizationNewsCollector:
                     "(cat:stat.ML AND optimization) OR "
                     'ti:"linear programming" OR ti:"integer programming" OR '
                     'ti:"convex optimization" OR ti:"nonlinear programming" OR '
-                    'ti:"combinatorial optimization" OR ti:"stochastic optimization"'
+                    'ti:"combinatorial optimization" OR ti:"stochastic optimization" OR '
+                    'ti:"packing" OR ti:"scheduling" OR ti:"vehicle routing"'
                 ),
                 max_results=50,
                 sort_by=arxiv.SortCriterion.SubmittedDate,
@@ -182,15 +253,25 @@ class OptimizationNewsCollector:
                 updated_jst = result.updated.astimezone(self.jst).date() if result.updated else None
                 
                 if published_jst >= cutoff_date or (updated_jst and updated_jst >= cutoff_date):
+                    # 翻訳実行
+                    print(f"  📝 翻訳中: {result.title[:50]}...")
+                    translated_title = self.translate_text(result.title)
+                    translated_summary = self.translate_text(result.summary)
+                    
+                    # 優先度スコア計算
+                    priority_score = self.calculate_priority_score(result.title, result.summary)
+
                     papers.append({
-                        'title': result.title.replace('\n', ' ').strip(),
+                        'title': translated_title,
+                        'original_title': result.title.replace('\n', ' ').strip(),
                         'authors': [author.name for author in result.authors[:3]],
-                        'abstract': result.summary.replace('\n', ' ').strip()[:500] + "...",
+                        'abstract': translated_summary,
+                        'original_abstract': result.summary.replace('\n', ' ').strip()[:500] + "...",
                         'url': result.entry_id,
                         'published': published_jst.strftime('%Y-%m-%d'),
                         'updated': updated_jst.strftime('%Y-%m-%d') if updated_jst else None,
                         'categories': result.categories,
-                        'translated_summary': self.summarize_and_translate(result.summary)
+                        'priority_score': priority_score
                     })
             
             print(f"✅ arxivライブラリで論文 {len(papers)} 件を収集しました")
@@ -199,187 +280,7 @@ class OptimizationNewsCollector:
         except Exception as e:
             print(f"❌ arxivライブラリでエラー: {e}")
             print("直接API呼び出しを試します...")
-            return self.collect_arxiv_papers_direct_api(days_back)
-
-    
-    def collect_arxiv_papers_direct_api(self, days_back=2):
-        """直接API呼び出しでarXiv論文を収集"""
-        print("📚 直接APIでarXivから論文を収集中...")
-        
-        papers = []
-        cutoff_date = self.get_jst_time().date() - timedelta(days=days_back)
-        
-        try:
-            # クエリを分割してそれぞれ取得
-            queries = [
-                "cat:math.OC",
-                "cat:cs.DM AND optimization",
-                "cat:stat.ML AND optimization"
-            ]
-            
-            for query in queries:
-                try:
-                    api_url = "https://export.arxiv.org/api/query"
-                    params = {
-                        'search_query': query,
-                        'start': 0,
-                        'max_results': 20,
-                        'sortBy': 'submittedDate',
-                        'sortOrder': 'descending'
-                    }
-                    
-                    response = requests.get(api_url, params=params, timeout=30)
-                    response.raise_for_status()
-                    
-                    feed = feedparser.parse(response.content)
-                    
-                    for entry in feed.entries:
-                        # 日付処理
-                        try:
-                            published_dt = datetime.strptime(entry.published, '%Y-%m-%dT%H:%M:%SZ')
-                            published_dt = pytz.utc.localize(published_dt)
-                            published_jst = published_dt.astimezone(self.jst).date()
-                            
-                            updated_jst = None
-                            if hasattr(entry, 'updated'):
-                                try:
-                                    updated_dt = datetime.strptime(entry.updated, '%Y-%m-%dT%H:%M:%SZ')
-                                    updated_dt = pytz.utc.localize(updated_dt)
-                                    updated_jst = updated_dt.astimezone(self.jst).date()
-                                except:
-                                    pass
-                            
-                            # 日付フィルタ
-                            if published_jst >= cutoff_date or (updated_jst and updated_jst >= cutoff_date):
-                                # 重複チェック
-                                if not any(p['url'] == entry.id for p in papers):
-                                    # 著者処理
-                                    authors = []
-                                    if hasattr(entry, 'authors'):
-                                        authors = [author.name for author in entry.authors[:3]]
-                                    elif hasattr(entry, 'author'):
-                                        authors = [entry.author]
-                                    
-                                    # カテゴリ処理
-                                    categories = []
-                                    if hasattr(entry, 'arxiv_primary_category'):
-                                        categories.append(entry.arxiv_primary_category['term'])
-                                    
-                                    papers.append({
-                                        'title': entry.title.replace('\n', ' ').strip(),
-                                        'authors': authors,
-                                        'abstract': entry.summary.replace('\n', ' ').strip()[:500] + "...",
-                                        'url': entry.id,
-                                        'published': published_jst.strftime('%Y-%m-%d'),
-                                        'updated': updated_jst.strftime('%Y-%m-%d') if updated_jst else None,
-                                        'categories': categories,
-                                        'translated_summary': self.summarize_and_translate(entry.summary)
-                                    })
-                        
-                        except Exception as e:
-                            print(f"  ⚠️ エントリ処理エラー: {e}")
-                            continue
-                
-                except Exception as e:
-                    print(f"  ⚠️ クエリ '{query}' でエラー: {e}")
-                    continue
-                
-                # API制限を考慮して少し待機
-                time.sleep(1)
-            
-            print(f"✅ 直接APIで論文 {len(papers)} 件を収集しました")
             return papers
-            
-        except Exception as e:
-            print(f"❌ 直接API呼び出しエラー: {e}")
-            return []
-
-    
-    def collect_news_from_rss(self):
-        """RSSから最適化関連ニュースを収集（フィルタリング強化）"""
-        print("📰 ニュースを収集中...")
-        
-        # 数理最適化により関連性の高いRSSソース
-        rss_urls = [
-            "https://rss.cnn.com/rss/edition_technology.rss",
-            "https://feeds.reuters.com/reuters/technologyNews",
-            "https://rss.slashdot.org/Slashdot/slashdotMain",
-            "https://feeds.feedburner.com/oreilly/radar"
-        ]
-        
-        # より厳密なキーワードフィルタ
-        optimization_keywords = [
-            'optimization', 'optimisation', 'algorithm', 'programming',
-            'linear programming', 'integer programming', 'convex',
-            'machine learning', 'data science', 'operations research',
-            'mathematical programming', 'solver', 'constraint',
-            'heuristic', 'metaheuristic', 'genetic algorithm',
-            'simulated annealing', 'particle swarm', 'gradient descent',
-            'neural network', 'deep learning', 'reinforcement learning'
-        ]
-        
-        # 除外キーワード（関連性の低いニュースを除外）
-        exclude_keywords = [
-            'celebrity', 'entertainment', 'sports', 'weather',
-            'politics', 'election', 'crime', 'accident', 'war',
-            'fashion', 'food', 'travel', 'celebrity', 'gossip'
-        ]
-        
-        news_items = []
-        for rss_url in rss_urls:
-            try:
-                feed = feedparser.parse(rss_url)
-                for entry in feed.entries[:10]:  # 各RSSから10件チェック
-                    title_lower = entry.title.lower()
-                    summary_lower = getattr(entry, 'summary', '').lower()
-                    combined_text = title_lower + ' ' + summary_lower
-                    
-                    # 除外キーワードチェック
-                    if any(exclude in combined_text for exclude in exclude_keywords):
-                        continue
-                    
-                    # 最適化関連キーワードでフィルタ（より厳密）
-                    relevance_score = sum(1 for keyword in optimization_keywords 
-                                        if keyword in combined_text)
-                    
-                    # 関連度スコアが2以上の記事のみ採用
-                    if relevance_score >= 1:
-                        # 日本時間で公開日を処理
-                        published_date = getattr(entry, 'published', '')
-                        if published_date:
-                            try:
-                                pub_dt = datetime.strptime(published_date[:19], '%Y-%m-%dT%H:%M:%S')
-                                pub_dt = pytz.utc.localize(pub_dt).astimezone(self.jst)
-                                published_jst = pub_dt.strftime('%Y-%m-%d %H:%M JST')
-                            except:
-                                published_jst = published_date
-                        else:
-                            published_jst = '日時不明'
-                        
-                        news_items.append({
-                            'title': entry.title,
-                            'link': entry.link,
-                            'published': published_jst,
-                            'summary': getattr(entry, 'summary', '')[:300] + "...",
-                            'relevance_score': relevance_score,
-                            'source_url': rss_url,
-                            'translated_summary': self.summarize_and_translate(getattr(entry, 'summary', ''))
-                        })
-                        
-                        # 十分な数の関連ニュースが集まったら終了
-                        if len(news_items) >= 8:
-                            break
-                            
-            except Exception as e:
-                print(f"⚠️ RSS取得エラー ({rss_url}): {e}")
-                continue
-        
-        # 関連度スコア順でソート
-        news_items.sort(key=lambda x: x['relevance_score'], reverse=True)
-        news_items = news_items[:5]  # 上位5件のみ
-        
-        print(f"✅ 関連ニュース {len(news_items)} 件を収集しました")
-        return news_items
 
     def collect_news_from_rss_improved(self):
         """改善版：RSSから最適化関連ニュースを収集"""
@@ -470,17 +371,17 @@ class OptimizationNewsCollector:
                             continue
                         
                         # 段階的関連度スコア計算
-                        high_score = sum(2 for keyword in high_priority_keywords 
+                        high_score = sum(4 for keyword in high_priority_keywords 
                                        if keyword in combined_text)
-                        medium_score = sum(1 for keyword in medium_priority_keywords 
+                        medium_score = sum(2 for keyword in medium_priority_keywords 
                                          if keyword in combined_text)
-                        low_score = sum(0.5 for keyword in low_priority_keywords 
+                        low_score = sum(1 for keyword in low_priority_keywords 
                                       if keyword in combined_text)
                         
                         total_relevance_score = high_score + medium_score + low_score
                         
-                        # より緩い閾値（1.0以上で採用）
-                        if total_relevance_score >= 1.0:
+                        # より緩い閾値（2.0以上で採用）
+                        if total_relevance_score >= 2.0:
                             # 日本時間で公開日を処理
                             published_date = getattr(entry, 'published', '')
                             if published_date:
@@ -498,14 +399,21 @@ class OptimizationNewsCollector:
                             
                             # 重複チェック（URLベース）
                             if not any(item['link'] == entry.link for item in news_items):
+                                # 翻訳実行
+                                print(f"    📝 翻訳中: {entry.title[:50]}...")
+                                translated_title = self.translate_text(entry.title)
+                                translated_summary = self.translate_text(getattr(entry, 'summary', ''))
+
                                 news_items.append({
-                                    'title': entry.title.strip(),
+                                    'title': translated_title,
+                                    'original_title': entry.title.strip(),
                                     'link': entry.link,
                                     'published': published_jst,
-                                    'summary': getattr(entry, 'summary', '')[:300] + "...",
+                                    'summary': translated_summary,
+                                    'original_summary': getattr(entry, 'summary', '')[:300] + "...",
                                     'relevance_score': round(total_relevance_score, 1),
-                                    'source_url': rss_url,  # デバッグ用にソースを記録
-                                    'translated_summary': self.summarize_and_translate(getattr(entry, 'summary', ''))
+                                    'priority_score': priority_score,
+                                    'source_url': rss_url
                                 })
                                 
                                 print(f"    📄 採用: {entry.title[:50]}... (スコア: {total_relevance_score:.1f})")
@@ -772,10 +680,6 @@ class OptimizationNewsCollector:
                             </div>
                         </div>
                         <div class="abstract">{paper['abstract']}</div>
-                        <div class="abstract">
-                            <strong>📝 日本語要約:</strong><br>
-                            {paper.get('translated_summary', '(翻訳なし)')}
-                        </div>
                         <a href="{paper['url']}" class="link" target="_blank">論文を読む</a>
                     </div>
                 """
@@ -811,10 +715,6 @@ class OptimizationNewsCollector:
                             </div>
                         </div>
                         <div class="abstract">{news['summary']}</div>
-                        <div class="abstract">
-                            <strong>📝 日本語要約:</strong><br>
-                            {news.get('translated_summary', '(翻訳なし)')}
-                        </div>                        
                         <a href="{news['link']}" class="link news-link" target="_blank">記事を読む</a>
                     </div>
                 """
