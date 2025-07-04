@@ -412,7 +412,6 @@ class OptimizationNewsCollector:
                                     'summary': translated_summary,
                                     'original_summary': getattr(entry, 'summary', '')[:300] + "...",
                                     'relevance_score': round(total_relevance_score, 1),
-                                    'priority_score': priority_score,
                                     'source_url': rss_url
                                 })
                                 
