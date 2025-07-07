@@ -260,7 +260,10 @@ class OptimizationNewsCollector:
                     
                     # 優先度スコア計算
                     priority_score = self.calculate_priority_score(result.title, result.summary)
-
+                    
+                    # 日時は新しい順でソート用に使用（published と updated の新しい方）
+                    latest_date = max(published_jst, updated_jst) if updated_jst else published_jst
+                    
                     papers.append({
                         'title': translated_title,
                         'original_title': result.title.replace('\n', ' ').strip(),
@@ -271,60 +274,91 @@ class OptimizationNewsCollector:
                         'published': published_jst.strftime('%Y-%m-%d'),
                         'updated': updated_jst.strftime('%Y-%m-%d') if updated_jst else None,
                         'categories': result.categories,
-                        'priority_score': priority_score
+                        'priority_score': priority_score,
+                        'latest_date': latest_date  # ソート用の日付
                     })
             
+            # ソート：priority_score降順、日時降順（新しい順）
+            papers.sort(key=lambda x: (-x['priority_score'], -x['latest_date'].toordinal()))
+            
+            # 最大10件まで
+            papers = papers[:10]
+            
             print(f"✅ arxivライブラリで論文 {len(papers)} 件を収集しました")
+            
+            # ソート用の一時的なフィールドを削除
+            for paper in papers:
+                del paper['latest_date']
+            
             return papers
             
         except Exception as e:
             print(f"❌ arxivライブラリでエラー: {e}")
             print("直接API呼び出しを試します...")
             return papers
-
+    
     def collect_news_from_rss_improved(self):
-        """改善版：RSSから最適化関連ニュースを収集"""
-        print("📰 ニュースを収集中...")
+        """日本語RSS専用：数理最適化関連ニュースを収集（翻訳なし）"""
+        print("📰 日本語ニュースを収集中...")
         
-        # より現在でも使えるRSSソース（2024年対応）
+        # 日本語技術系RSSフィード
         rss_urls = [
-            # より確実に動作するRSSフィード
-            "https://www.theverge.com/rss/index.xml",
-            "https://techcrunch.com/feed/",
-            "https://www.wired.com/feed/rss",
-            "https://arstechnica.com/feed/",
-            "https://feeds.feedburner.com/venturebeat/SZYF",
-            "https://www.zdnet.com/news/rss.xml"
+            # 技術系メディア
+            "https://www.itmedia.co.jp/news/rss/news_all.xml",
+            "https://www.itmedia.co.jp/news/rss/news_aitech.xml",
+            "https://forest.watch.impress.co.jp/data/rss/1.0/wf/feed.rdf",
+            "https://pc.watch.impress.co.jp/data/rss/1.0/pcw/feed.rdf",
+            "https://internet.watch.impress.co.jp/data/rss/1.0/iw/feed.rdf",
+            
+            # AI・機械学習特化
+            "https://ainow.ai/feed/",
+            "https://ledge.ai/feed/",
+            
+            # 企業・研究機関
+            "https://www.ntt.co.jp/news/news.rss",
+            "https://www.softbank.jp/corp/news/rss/",
+            "https://www.fujitsu.com/jp/rss/news.xml",
+            "https://www.nec.co.jp/press/rss/index.xml",
+            
+            # 学術系
+            "https://www.jst.go.jp/rss/news.xml",
+            "https://www.riken.jp/rss/press.xml",
+            
+            # その他技術系
+            "https://gihyo.jp/feed/atom",
+            "https://codezine.jp/rss/new/20/index.xml",
+            "https://www.atmarkit.co.jp/rss/rss2dc.xml"
         ]
-#            "https://rss.cnn.com/rss/edition_technology.rss",    #アクセスエラー
-#            "https://feeds.reuters.com/reuters/technologyNews"    #アクセスエラー
-
         
-        # より柔軟なキーワードフィルタ（段階的アプローチ）
+        # 日本語キーワードフィルタ（段階的アプローチ）
         # Tier 1: 直接関連（高スコア）
         high_priority_keywords = [
-            'optimization', 'optimisation', 'algorithm', 'programming',
-            'machine learning', 'AI', 'artificial intelligence',
-            'data science', 'operations research', 'solver'
+            '最適化', '最適', 'アルゴリズム', 'プログラミング',
+            '機械学習', 'AI', '人工知能', 'データサイエンス',
+            'オペレーションズリサーチ', 'ソルバー', '数理最適化',
+            '線形計画', '非線形計画', '整数計画', '組合せ最適化'
         ]
         
         # Tier 2: 間接関連（中スコア）
         medium_priority_keywords = [
-            'analytics', 'efficiency', 'performance', 'automation',
-            'neural network', 'deep learning', 'model', 'prediction',
-            'computational', 'mathematical', 'statistical'
+            'アナリティクス', '効率', 'パフォーマンス', '自動化',
+            'ニューラルネットワーク', 'ディープラーニング', 'モデル', '予測',
+            '計算', '数学', '統計', 'アルゴリズム開発', 'データ分析',
+            'ビッグデータ', 'シミュレーション', '数値解析'
         ]
         
         # Tier 3: 技術関連（低スコア）
         low_priority_keywords = [
-            'software', 'technology', 'tech', 'innovation',
-            'research', 'development', 'computing', 'digital'
+            'ソフトウェア', 'テクノロジー', 'テック', 'イノベーション',
+            '研究', '開発', 'コンピューティング', 'デジタル', 'システム',
+            'プログラム', 'アプリケーション', 'ツール'
         ]
         
-        # 除外キーワードを減らす（過度な除外を防ぐ）
+        # 除外キーワード
         exclude_keywords = [
-            'celebrity', 'entertainment', 'sports', 'weather',
-            'crime', 'accident', 'war', 'fashion', 'food', 'travel'
+            '芸能', 'エンターテイメント', 'スポーツ', '天気',
+            '事件', '事故', '戦争', 'ファッション', '料理', '旅行',
+            'ゲーム', '音楽', '映画', '恋愛', '結婚'
         ]
         
         news_items = []
@@ -335,15 +369,19 @@ class OptimizationNewsCollector:
                 
                 # タイムアウトとユーザーエージェントを設定
                 headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
                 }
                 
-                # まずHTTPでアクセス可能かチェック
+                # HTTPアクセス可能性をチェック
                 try:
-                    response = requests.get(rss_url, headers=headers, timeout=10)
+                    response = requests.get(rss_url, headers=headers, timeout=15)
                     if response.status_code != 200:
                         print(f"    ⚠️ HTTP {response.status_code}: {rss_url}")
                         continue
+                        
+                    # 日本語エンコーディングの処理
+                    response.encoding = response.apparent_encoding
+                    
                 except Exception as e:
                     print(f"    ⚠️ アクセスエラー: {e}")
                     continue
@@ -357,14 +395,14 @@ class OptimizationNewsCollector:
                 
                 print(f"    ✅ {len(feed.entries)}件のエントリを取得")
                 
-                # より多くのエントリをチェック（20件に増加）
-                for entry in feed.entries[:20]:
+                # より多くのエントリをチェック（25件に増加）
+                for entry in feed.entries[:25]:
                     try:
-                        title_lower = entry.title.lower()
-                        summary_lower = getattr(entry, 'summary', '').lower()
-                        combined_text = title_lower + ' ' + summary_lower
+                        title = entry.title.strip()
+                        summary = getattr(entry, 'summary', '').strip()
+                        combined_text = title + ' ' + summary
                         
-                        # 除外キーワードチェック（緩和）
+                        # 除外キーワードチェック
                         exclude_count = sum(1 for exclude in exclude_keywords 
                                           if exclude in combined_text)
                         if exclude_count >= 2:  # 2個以上の除外キーワードがある場合のみ除外
@@ -380,13 +418,12 @@ class OptimizationNewsCollector:
                         
                         total_relevance_score = high_score + medium_score + low_score
                         
-                        # より緩い閾値（2.0以上で採用）
-                        if total_relevance_score >= 2.0:
+                        # 日本語記事は関連度をやや緩く設定（1.5以上で採用）
+                        if total_relevance_score >= 1.5:
                             # 日本時間で公開日を処理
                             published_date = getattr(entry, 'published', '')
                             if published_date:
                                 try:
-                                    # より柔軟な日付パース
                                     from dateutil import parser
                                     pub_dt = parser.parse(published_date)
                                     if pub_dt.tzinfo is None:
@@ -399,23 +436,21 @@ class OptimizationNewsCollector:
                             
                             # 重複チェック（URLベース）
                             if not any(item['link'] == entry.link for item in news_items):
-                                # 翻訳実行
-                                print(f"    📝 翻訳中: {entry.title[:50]}...")
-                                translated_title = self.translate_text(entry.title)
-                                translated_summary = self.translate_text(getattr(entry, 'summary', ''))
-
+                                
+                                # サマリーの長さを適切に制限
+                                display_summary = summary[:200] + "..." if len(summary) > 200 else summary
+                                
                                 news_items.append({
-                                    'title': translated_title,
-                                    'original_title': entry.title.strip(),
+                                    'title': title,
                                     'link': entry.link,
                                     'published': published_jst,
-                                    'summary': translated_summary,
-                                    'original_summary': getattr(entry, 'summary', '')[:300] + "...",
+                                    'summary': display_summary,
                                     'relevance_score': round(total_relevance_score, 1),
-                                    'source_url': rss_url
+                                    'source_url': rss_url,
+                                    'source_name': self._get_source_name(rss_url)
                                 })
                                 
-                                print(f"    📄 採用: {entry.title[:50]}... (スコア: {total_relevance_score:.1f})")
+                                print(f"    📄 採用: {title[:50]}... (スコア: {total_relevance_score:.1f})")
                     
                     except Exception as e:
                         print(f"    ⚠️ エントリ処理エラー: {e}")
@@ -426,28 +461,53 @@ class OptimizationNewsCollector:
                 continue
             
             # API制限を考慮して少し待機
-            time.sleep(0.5)
+            time.sleep(0.3)
         
         # 関連度スコア順でソート
         news_items.sort(key=lambda x: x['relevance_score'], reverse=True)
         
-        # 上位10件に制限（元の5件から増加）
-        news_items = news_items[:10]
+        # 上位12件に制限
+        news_items = news_items[:12]
         
-        print(f"✅ 関連ニュース {len(news_items)} 件を収集しました")
+        print(f"✅ 日本語関連ニュース {len(news_items)} 件を収集しました")
         
         # デバッグ情報の出力
         if news_items:
             print("📊 収集されたニュースの詳細:")
             for i, item in enumerate(news_items, 1):
-                print(f"  {i}. スコア{item['relevance_score']}: {item['title'][:60]}...")
+                print(f"  {i}. [{item['source_name']}] スコア{item['relevance_score']}: {item['title'][:50]}...")
         else:
             print("⚠️ フィルタリング後のニュースが0件です。以下を確認してください：")
-            print("  1. RSSフィードのアクセス状況")
-            print("  2. キーワードフィルタの設定")
+            print("  1. 日本語RSSフィードのアクセス状況")
+            print("  2. 日本語キーワードフィルタの設定")
             print("  3. 除外キーワードの設定")
+            print("  4. 関連度スコアの閾値設定")
         
         return news_items
+    
+    def _get_source_name(self, rss_url):
+        """RSSのURLからソース名を取得"""
+        source_mapping = {
+            'itmedia.co.jp': 'ITmedia',
+            'impress.co.jp': 'Impress',
+            'ainow.ai': 'AINOW',
+            'ledge.ai': 'Ledge.ai',
+            'ntt.co.jp': 'NTT',
+            'softbank.jp': 'SoftBank',
+            'fujitsu.com': 'Fujitsu',
+            'nec.co.jp': 'NEC',
+            'jst.go.jp': 'JST',
+            'riken.jp': 'RIKEN',
+            'gihyo.jp': '技術評論社',
+            'codezine.jp': 'CodeZine',
+            'atmarkit.co.jp': '@IT'
+        }
+        
+        for domain, name in source_mapping.items():
+            if domain in rss_url:
+                return name
+        
+        return 'Unknown'
     
     def generate_html_report(self, papers, news_items):
         """美しいHTMLレポートを生成"""
