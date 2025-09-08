@@ -17,7 +17,7 @@ import torch
 
 class OptimizationNewsCollector:
     def __init__(self):
-        # 環境変数から設定を取得
+        # 環境変数から設定を取得 
         self.recipient_email = os.getenv('RECIPIENT_EMAIL')
         self.sender_email = os.getenv('SENDER_EMAIL')
         self.sender_password = os.getenv('GMAIL_APP_PASSWORD')
